@@ -2,6 +2,7 @@
   const $ = (id) => document.getElementById(id);
   const SESSION_KEY = 'justdoit.user';
   const STATUS_LABEL = { PENDING: 'Pendiente', INPROGRESS: 'En progreso', DONE: 'Hecha' };
+  const NEXT_STATUS = { PENDING: 'INPROGRESS', INPROGRESS: 'DONE' };
 
   let currentUser = null;
   let users = [];
@@ -55,16 +56,19 @@
     openUserDialog(null, true);
   };
 
-  $('login-form').onsubmit = (e) => {
-    e.preventDefault();
-    guard(async () => {
-      const name = $('login-username').value.trim().toLowerCase();
-      const list = await Api.users.list();
-      const found = list.find((u) => (u.userName || '').toLowerCase() === name);
-      if (!found) throw new Error('Usuario no encontrado');
+$('login-form').onsubmit = (e) => {
+  e.preventDefault();
+  guard(async () => {
+    const name = $('login-username').value.trim();
+    try {
+      const found = await Api.users.getByUsername(name);
       startSession(found);
-    });
-  };
+    } catch (err) {
+      if (err.message.includes('404')) throw new Error('Usuario no encontrado');
+      throw err;
+    }
+  });
+};
 
   function startSession(user) {
     currentUser = user;
@@ -193,7 +197,10 @@
         el('div', { class: 'meta' }, 'Límite: ' + (t.deadline || '-') + ' · Creada: ' + fmtDate(t.createdAt)),
         select,
         el('div', { class: 'row' },
-          el('button', { class: 'btn ghost small', onclick: () => openTaskDialog(t) }, 'Editar'),
+          el('button', { class: 'btn ghost small', onclick: () => openTaskDialog(t) }, 'Editar'), 
+          NEXT_STATUS[t.status]
+            ? el('button', { class: 'btn secondary small', onclick: () => advanceTask(t) }, 'Avanzar')
+            : '',
           el('button', { class: 'btn danger small', onclick: () => deleteTask(t) }, 'Eliminar'))));
     });
   }
@@ -233,6 +240,16 @@
       await loadTasks();
     });
   };
+
+  async function advanceTask(t) {
+  const next = NEXT_STATUS[t.status];
+  if (!next) return;
+  await guard(async () => {
+    await Api.tasks.update(targetUserId(), t.id, { status: next });
+    toast('Tarea avanzada a ' + STATUS_LABEL[next]);
+    await loadTasks();
+  });
+}
 
   async function deleteTask(t) {
     if (!confirm('¿Eliminar esta tarea?')) return;
